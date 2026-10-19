@@ -49,3 +49,6 @@ open demo.html
 ## Notes
 - The limits in `capacity-engineering/references/limits-cheatsheet.md` are starting points. The skill verifies each one against docs or your account before relying on it.
 - Load tests and cloud quota commands only run with your explicit OK. The skills never file quota increases or change live infrastructure.
+
+## License
+[MIT](LICENSE)
