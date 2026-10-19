@@ -1,0 +1,693 @@
+<title>__TITLE__</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: control-room board. Verdict + load, live architecture graph (green/amber/red), selected component, every variable, then the report (ladder, fixes, quota requests, warnings, sources) */
+:root {
+  --bg: #f3f5f8; --surface: #ffffff; --ink: #18202b; --muted: #5b6676; --line: #d3dae4;
+  --accent: #2343c8; --accent-soft: #e4e9fb;
+  --ok: #138a52; --ok-soft: #d9f2e5; --warn: #b26b00; --warn-soft: #fbeccf; --crit: #cc2b2b; --crit-soft: #fadcdc;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141b; --surface: #171e28; --ink: #e6ebf2; --muted: #95a1b2; --line: #2c3746;
+  --accent: #8ea4ff; --accent-soft: #1e2a52;
+  --ok: #3fcf8a; --ok-soft: #12342a; --warn: #f0a83a; --warn-soft: #3a2a10; --crit: #ff6464; --crit-soft: #431a1a;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #171e28; --ink: #e6ebf2; --muted: #95a1b2; --line: #2c3746;
+  --accent: #8ea4ff; --accent-soft: #1e2a52;
+  --ok: #3fcf8a; --ok-soft: #12342a; --warn: #f0a83a; --warn-soft: #3a2a10; --crit: #ff6464; --crit-soft: #431a1a;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 24px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 18px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; }
+h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.15rem; font-weight: 700; }
+h3 { font-size: 0.98rem; font-weight: 700; }
+.eyebrow { font: 600 0.72rem/1 var(--f-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.sub { color: var(--muted); max-width: 72ch; margin: 4px 0 0; }
+.muted { color: var(--muted); font-size: 0.85rem; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; display: grid; gap: 12px; align-content: start; }
+.row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+input[type=number] { width: 100%; font: 0.85rem var(--f-mono); padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+.btn { font: 500 0.85rem var(--f-body); padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+.btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+/* verdict + load */
+.top { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; }
+.breaks { border-left: 6px solid var(--crit); }
+.breaks.is-ok { border-left-color: var(--ok); }
+.breaks.is-warn { border-left-color: var(--warn); }
+.breaks .big { font: 700 1.6rem/1.2 var(--f-display); }
+.breaks p { margin: 0; color: var(--muted); }
+.load-val { font: 600 1.8rem/1 var(--f-mono); font-variant-numeric: tabular-nums; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font: 500 0.82rem/1 var(--f-body); padding: 7px 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+
+/* graph */
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+.graph-wrap, .ladder-wrap, .table-wrap { overflow-x: auto; }
+#graph { display: block; }
+#graph .nd { cursor: pointer; }
+#graph .nd:focus { outline: none; }
+#graph .nd:focus-visible .box { stroke: var(--accent); stroke-width: 3; }
+#graph text, svg text { font-family: var(--f-body); }
+#graph .flow { stroke-dasharray: 6 6; animation: flow var(--spd, 1.2s) linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -12; } }
+#graph .pulse { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+
+/* selected component */
+.sel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.pill { font: 600 0.72rem/1 var(--f-body); letter-spacing: 0.05em; padding: 5px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.OK { background: var(--ok-soft); color: var(--ok); }
+.pill.RISK { background: var(--warn-soft); color: var(--warn); }
+.pill.FAIL { background: var(--crit-soft); color: var(--crit); }
+.pill.quota { background: var(--accent-soft); color: var(--accent); }
+.pill.neutral { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.limit { display: grid; gap: 6px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.limit-top { display: flex; justify-content: space-between; gap: 8px; font-size: 0.9rem; }
+.limit-top span:first-child { min-width: 0; font-weight: 600; }
+.formula { font: 0.78rem/1.4 var(--f-mono); color: var(--muted); overflow-wrap: anywhere; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; font-size: 0.72rem; color: var(--muted); align-items: center; }
+.tag { border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.tag.unverified { color: var(--warn); border-color: var(--warn); }
+.meter { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; position: relative; }
+.meter i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--ok); }
+.meter[data-s="RISK"] i { background: var(--warn); }
+.meter[data-s="FAIL"] i { background: var(--crit); }
+.meter b { position: absolute; top: -2px; bottom: -2px; left: 70%; width: 1px; background: var(--muted); }
+.var { display: grid; grid-template-columns: minmax(0, 1fr) 104px; gap: 4px 10px; align-items: center; padding: 8px 0; border-top: 1px dashed var(--line); }
+.var label { grid-column: 1 / -1; font-size: 0.8rem; color: var(--muted); }
+.var label code { font: 0.75rem var(--f-mono); color: var(--ink); background: var(--bg); padding: 0 4px; border-radius: 3px; }
+.var.derived { grid-template-columns: minmax(0, 1fr); }
+
+/* all variables */
+.allvars { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.vgroup { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; align-content: start; min-width: 0; }
+.vgroup.is-sel { border-color: var(--accent); }
+.vgroup h3 { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 4px; }
+.vrow { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 8px; align-items: center; font-size: 0.82rem; padding: 3px 0; }
+.vrow span { min-width: 0; color: var(--muted); }
+
+/* report */
+.fixes { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.fix { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 8px; align-content: start; }
+.fix.on { border-color: var(--accent); background: var(--accent-soft); }
+.fix p { margin: 0; font-size: 0.88rem; }
+table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 0.72rem var(--f-body); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+td a { color: var(--accent); overflow-wrap: anywhere; }
+.notes { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: var(--muted); font-size: 0.88rem; }
+.notes li.crit { color: var(--crit); }
+.notes li.warn { color: var(--warn); }
+textarea { width: 100%; min-height: 160px; font: 0.8rem var(--f-mono); background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.foot { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+@media (max-width: 820px) { .sel { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 720px) { .top { grid-template-columns: minmax(0, 1fr); } h1 { font-size: 1.5rem; } }
+@media (prefers-reduced-motion: reduce) { #graph .flow, #graph .pulse { animation: none; } }
+</style>
+
+<script type="application/json" id="model">__MODEL_JSON__</script>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Capacity report &amp; simulator</div>
+    <h1 id="title">Capacity</h1>
+    <p class="sub" id="subtitle"></p>
+  </header>
+
+  <section class="top">
+    <div class="panel breaks" id="breaks">
+      <div class="eyebrow">Breaks first</div>
+      <div class="big" id="first">–</div>
+      <p id="firstDetail"></p>
+    </div>
+    <div class="panel">
+      <div class="row">
+        <div><div class="eyebrow">Incoming load</div><span class="load-val" id="loadVal">0</span> <span class="num" id="loadUnit">req/s</span></div>
+        <div class="chips" id="scenarios" role="group" aria-label="Scenarios"></div>
+      </div>
+      <input type="range" id="load" min="0" max="1000" step="1" aria-label="Incoming requests per second">
+      <div class="row muted"><span id="loadMin"></span><span id="loadMax"></span></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="row">
+      <h2>Architecture</h2>
+      <div class="legend">
+        <span style="--c:var(--ok)">Healthy under 70%</span>
+        <span style="--c:var(--warn)">Near limit 70–100%</span>
+        <span style="--c:var(--crit)">Over limit</span>
+      </div>
+    </div>
+    <div class="graph-wrap"><svg id="graph" role="group" aria-label="Architecture diagram"></svg></div>
+    <p class="muted" style="margin:0">Arrows show which component calls which, labelled with the rate flowing into each. Click a box to inspect and tune it.</p>
+  </section>
+
+  <section class="panel" id="selPanel">
+    <div class="row"><div><div class="eyebrow" id="selKind"></div><h2 id="selName"></h2></div><span class="pill" id="selPill"></span></div>
+    <div class="sel">
+      <div><h3>Limits</h3><div id="selLimits"></div></div>
+      <div><h3>Variables</h3><div id="selVars"></div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="row"><h2>All variables &amp; quotas</h2><span class="muted">Every editable number in the model. Changes apply everywhere at once.</span></div>
+    <div class="allvars" id="allVars"></div>
+  </section>
+
+  <section class="panel">
+    <div class="row"><h2>Break-point ladder</h2><span class="muted" id="ladderSub">Load at which each limit hits 100% · log scale · dashed line = current load</span></div>
+    <div class="ladder-wrap"><svg id="ladder" role="img" aria-label="Break point per limit"></svg></div>
+  </section>
+
+  <section class="panel" id="fixPanel">
+    <div class="row"><h2>Fixes</h2><span class="muted">Press “Try it” to apply a fix to the model and see the new break point.</span></div>
+    <div class="fixes" id="fixes"></div>
+  </section>
+
+  <section class="panel" id="quotaPanel">
+    <h2>Quota increase requests</h2>
+    <p class="muted" style="margin:0">These are filed by you with the provider. Nothing here has been requested.</p>
+    <div class="table-wrap"><table id="quotas"></table></div>
+  </section>
+
+  <section class="panel" id="checkPanel">
+    <div class="row"><h2>Rule checks</h2><span class="muted">Formulas that must hold at the current load</span></div>
+    <div class="table-wrap"><table id="checks"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Warnings</h2>
+    <ul class="notes" id="notes"></ul>
+  </section>
+
+  <section class="panel">
+    <h2>Limit sources</h2>
+    <div class="table-wrap"><table id="sources"></table></div>
+    <div id="assumptionsBox"><h3>Assumptions</h3><ul class="notes" id="assumptions"></ul></div>
+  </section>
+
+  <section class="foot">
+    <button class="btn" id="reset" type="button">Reset to model</button>
+    <button class="btn primary" id="export" type="button">Copy adjusted model.json</button>
+    <span class="muted" id="exportMsg"></span>
+  </section>
+  <textarea id="exportBox" hidden readonly aria-label="Adjusted model JSON"></textarea>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const ORIGINAL = JSON.parse(document.getElementById("model").textContent);
+  const OK = 0.7, RISK = 1.0;
+  const $ = (id) => document.getElementById(id);
+  const fmt = (x) => x == null || isNaN(x) ? "–" : !isFinite(x) ? "∞" : Math.abs(x) >= 100 ? Math.round(x).toLocaleString() : Math.abs(x) >= 10 ? x.toFixed(0) : Math.abs(x) >= 1 ? x.toFixed(1) : x.toFixed(2);
+  const status = (u) => (u < OK ? "OK" : u < RISK ? "RISK" : "FAIL");
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const COL = { OK: "var(--ok)", RISK: "var(--warn)", FAIL: "var(--crit)" };
+  const SOFT = { OK: "var(--ok-soft)", RISK: "var(--warn-soft)", FAIL: "var(--crit-soft)" };
+  const BUILTIN_LABEL = { fanout: "Calls per incoming request", duration_s: "Duration per call (s)", timeout_s: "Timeout (s)" };
+
+  let M, load, selected, applied, scnVals, LOAD_MIN, LOAD_MAX, U = "req/s";
+
+  /* ================= expression engine (mirrors scripts/capacity_calc.py) ================= */
+  const cache = new Map();
+  function compile(src) {
+    if (cache.has(src)) return cache.get(src);
+    const toks = String(src).match(/\d*\.?\d+(?:[eE][+-]?\d+)?|[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?|[-+*/(),]|\S/g) || [];
+    let i = 0;
+    const peek = () => toks[i], next = () => toks[i++];
+    function expr() { let n = term(); while (peek() === "+" || peek() === "-") { const op = next(); n = { t: "bin", op, l: n, r: term() }; } return n; }
+    function term() { let n = unary(); while (peek() === "*" || peek() === "/") { const op = next(); n = { t: "bin", op, l: n, r: unary() }; } return n; }
+    function unary() { if (peek() === "-") { next(); return { t: "neg", x: unary() }; } if (peek() === "+") { next(); return unary(); } return atom(); }
+    function atom() {
+      const k = next();
+      if (k === undefined) throw new Error(`incomplete formula "${src}"`);
+      if (k === "(") { const n = expr(); if (next() !== ")") throw new Error(`missing ) in "${src}"`); return n; }
+      if (/^\d|^\./.test(k)) return { t: "num", v: parseFloat(k) };
+      if (/^[A-Za-z_]/.test(k)) {
+        if (peek() === "(") {
+          next(); const args = [];
+          if (peek() !== ")") { args.push(expr()); while (peek() === ",") { next(); args.push(expr()); } }
+          if (next() !== ")") throw new Error(`missing ) in "${src}"`);
+          if (!["min", "max", "ceil", "floor", "round"].includes(k)) throw new Error(`unknown function ${k}()`);
+          return { t: "call", f: k, args };
+        }
+        const [a, b] = k.split(".");
+        return b ? { t: "var", comp: a, key: b } : { t: "var", key: a };
+      }
+      throw new Error(`unexpected "${k}" in "${src}"`);
+    }
+    const ast = expr();
+    if (i < toks.length) throw new Error(`unexpected "${toks[i]}" in "${src}"`);
+    cache.set(src, ast);
+    return ast;
+  }
+  const FN = { min: Math.min, max: Math.max, ceil: Math.ceil, floor: Math.floor, round: Math.round };
+
+  function Engine(model) {
+    const comps = model.components;
+    comps.forEach((c) => { if (!c.id) c.id = c.name.replace(/\W+/g, "_").replace(/^_|_$/g, "").toLowerCase() || "c"; });
+    const byId = Object.fromEntries(comps.map((c) => [c.id, c]));
+    const byAny = Object.assign(Object.fromEntries(comps.map((c) => [c.name, c])), byId);
+    const gval = (k) => { const g = (model.globals || {})[k]; return g == null ? undefined : +(typeof g === "object" ? g.value : g); };
+
+    function ev(expr, comp, L, stack) {
+      if (expr == null) return 0;
+      if (typeof expr === "number") return expr;
+      return node(compile(expr), comp, L, stack || []);
+    }
+    function node(n, comp, L, stack) {
+      switch (n.t) {
+        case "num": return n.v;
+        case "neg": return -node(n.x, comp, L, stack);
+        case "call": return FN[n.f](...n.args.map((a) => node(a, comp, L, stack)));
+        case "bin": {
+          const a = node(n.l, comp, L, stack), b = node(n.r, comp, L, stack);
+          return n.op === "+" ? a + b : n.op === "-" ? a - b : n.op === "*" ? a * b : b ? a / b : 0;
+        }
+        case "var": {
+          if (n.comp) { const o = byId[n.comp]; if (!o) throw new Error(`unknown component id "${n.comp}"`); return lookup(o, n.key, L, stack); }
+          return lookup(comp, n.key, L, stack);
+        }
+      }
+    }
+    function lookup(comp, key, L, stack) {
+      if (key === "load") return L;
+      if (comp) {
+        if (["fanout", "duration_s", "timeout_s", "rps", "concurrency"].includes(key)) { const v = builtin(comp, key, L, stack); return v == null ? 0 : v; }
+        const p = (comp.params || {})[key];
+        if (p != null) return +(typeof p === "object" ? p.value : p);
+      }
+      const g = gval(key);
+      if (g !== undefined) return g;
+      throw new Error(`unknown variable "${key}" in ${comp ? comp.name : "globals"}`);
+    }
+    function builtin(comp, key, L, stack = []) {
+      const tag = comp.id + "." + key;
+      if (stack.includes(tag)) throw new Error(`circular reference at ${tag}`);
+      stack = stack.concat(tag);
+      if (key === "rps") return L * builtin(comp, "fanout", L, stack);
+      if (key === "concurrency") return builtin(comp, "rps", L, stack) * builtin(comp, "duration_s", L, stack);
+      const v = comp[key] !== undefined ? comp[key] : { fanout: 1, duration_s: 0 }[key];
+      return v == null ? null : ev(v, comp, L, stack);
+    }
+    function defaultDemand(l, c, L) {
+      switch (l.type) {
+        case "rps": return builtin(c, "rps", L);
+        case "concurrency": return builtin(c, "concurrency", L);
+        case "connections": { const h = byAny[l.held_by]; return builtin(h || c, "concurrency", L) * (h ? (l.per_holder ?? 1) : 1); }
+        case "throughput": return builtin(c, "rps", L) * (l.unit_size ?? 1);
+        default: throw new Error(`unknown limit type "${l.type}"`);
+      }
+    }
+    function evaluate(L) {
+      const rows = {}, errors = [];
+      comps.forEach((c) => (c.limits || []).forEach((l, i) => {
+        try {
+          const value = l.per_unit != null ? l.per_unit * (l.units ?? 1) : ev(l.value, c, L);
+          const key = l.shared_id ? "shared:" + l.shared_id : c.id + ":" + i;
+          const demand = l.demand != null ? ev(l.demand, c, L) : defaultDemand(l, c, L);
+          if (rows[key]) { rows[key].demand += demand; rows[key].members.push(c); rows[key].parts.push({ c, l, demand }); return; }
+          if (!(value > 0)) return;
+          rows[key] = { key, c, l, value, base: ev(l.baseline, c, L), demand, members: [c], parts: [{ c, l, demand }] };
+        } catch (e) { errors.push(`${c.name} · ${l.name}: ${e.message}`); }
+      }));
+      Object.values(rows).forEach((r) => { r.util = (r.demand + r.base) / r.value; r.s = status(r.util); });
+      return { rows, errors };
+    }
+    function breakPoint(key) {
+      const u = (L) => { const r = evaluate(L).rows[key]; return r ? r.util : 0; };
+      if (u(0) >= 1) return 0;
+      let lo = 0, hi = 1;
+      while (u(hi) < 1) { lo = hi; hi *= 4; if (hi > 1e9) return Infinity; }
+      for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (u(mid) < 1) lo = mid; else hi = mid; }
+      return hi;
+    }
+    function edges() {
+      const any = comps.some((c) => Array.isArray(c.connects_to)), out = [];
+      comps.forEach((c, i) => {
+        if (any) (c.connects_to || []).forEach((t) => { if (byAny[t]) out.push([c, byAny[t]]); });
+        else if (i < comps.length - 1) out.push([c, comps[i + 1]]);
+      });
+      return out;
+    }
+    return { comps, byId, ev, builtin, evaluate, breakPoint, edges, gval };
+  }
+
+  /* ================= variable registry (everything editable) ================= */
+  function variables() {
+    const out = [];
+    const meta = (p) => (typeof p === "object" ? p : { value: p });
+    Object.entries(M.globals || {}).forEach(([k, p]) => out.push({ key: "g|" + k, group: "__account", name: k, m: meta(p) }));
+    M.components.forEach((c) => {
+      ["fanout", "duration_s", "timeout_s"].forEach((b) => { if (c[b] !== undefined) out.push({ key: `b|${c.id}|${b}`, group: c.id, name: b, builtin: true, m: { value: c[b], label: BUILTIN_LABEL[b] } }); });
+      Object.entries(c.params || {}).forEach(([k, p]) => out.push({ key: `p|${c.id}|${k}`, group: c.id, name: k, m: meta(p) }));
+    });
+    return out;
+  }
+  function getVar(key) {
+    const [t, a, b] = key.split("|");
+    if (t === "g") { const g = M.globals[a]; return typeof g === "object" ? g.value : g; }
+    const c = M.components.find((x) => x.id === a);
+    if (t === "b") return c[b];
+    const p = c.params[b]; return typeof p === "object" ? p.value : p;
+  }
+  function setVar(key, v) {
+    const [t, a, b] = key.split("|");
+    if (t === "g") { if (typeof M.globals[a] === "object") M.globals[a].value = v; else M.globals[a] = v; return; }
+    const c = M.components.find((x) => x.id === a);
+    if (t === "b") { c[b] = v; return; }
+    if (typeof c.params[b] === "object") c.params[b].value = v; else c.params[b] = v;
+  }
+  function fixKey(k) { // "id.param" | "id.fanout" | "global"
+    if (!k.includes(".")) return "g|" + k;
+    const [id, f] = k.split(".");
+    return ["fanout", "duration_s", "timeout_s"].includes(f) ? `b|${id}|${f}` : `p|${id}|${f}`;
+  }
+  function rangeFor(v) {
+    const m = v.m, val = +m.value;
+    const lo = m.min ?? (val > 0 ? val / 20 : 0), hi = m.max ?? (val > 0 ? val * 20 : 10);
+    const log = lo > 0 && hi / lo >= 50;
+    return { lo, hi, log, integer: !!m.integer };
+  }
+  const toPos = (v, r) => r.log ? 1000 * (Math.log10(Math.max(v, r.lo)) - Math.log10(r.lo)) / (Math.log10(r.hi) - Math.log10(r.lo)) : 1000 * (v - r.lo) / ((r.hi - r.lo) || 1);
+  const fromPos = (p, r) => { let v = r.log ? Math.pow(10, Math.log10(r.lo) + (p / 1000) * (Math.log10(r.hi) - Math.log10(r.lo))) : r.lo + (p / 1000) * (r.hi - r.lo); return r.integer ? Math.round(v) : +v.toPrecision(3); };
+
+  function onVarChange(key, v) { setVar(key, v); render(); }
+  function numberInput(v, withRange) {
+    const frag = document.createDocumentFragment(), r = rangeFor(v);
+    const n = document.createElement("input"); n.type = "number"; n.dataset.key = v.key; n.step = r.integer ? "1" : "any"; n.value = +(+v.m.value).toPrecision(5);
+    n.setAttribute("aria-label", v.m.label || v.name);
+    n.addEventListener("change", () => { const x = parseFloat(n.value); if (isNaN(x)) { n.value = getVar(v.key); return; } onVarChange(v.key, r.integer ? Math.round(x) : x); });
+    if (withRange) {
+      const s = document.createElement("input"); s.type = "range"; s.min = 0; s.max = 1000; s.dataset.key = v.key; s.dataset.range = JSON.stringify(r);
+      s.value = toPos(+v.m.value, r); s.setAttribute("aria-label", v.m.label || v.name);
+      s.addEventListener("input", () => onVarChange(v.key, fromPos(+s.value, r)));
+      frag.append(s);
+    }
+    frag.append(n);
+    return frag;
+  }
+  function syncInputs() {
+    document.querySelectorAll("input[data-key]").forEach((el) => {
+      if (el === document.activeElement) return;
+      const v = getVar(el.dataset.key); if (typeof v !== "number") return;
+      if (el.type === "range") el.value = toPos(v, JSON.parse(el.dataset.range)); else el.value = +v.toPrecision(5);
+    });
+  }
+
+  /* ================= views ================= */
+  let E, state;
+  function compute() {
+    E = Engine(M);
+    const now = E.evaluate(load);
+    const rows = Object.values(now.rows);
+    rows.forEach((r) => { r.brk = E.breakPoint(r.key); });
+    rows.sort((a, b) => a.brk - b.brk);
+    const compWorst = {};
+    rows.forEach((r) => r.members.forEach((c) => { if (!compWorst[c.id] || r.util > compWorst[c.id].util) compWorst[c.id] = r; }));
+    state = { rows, errors: now.errors, compWorst, first: rows[0] };
+  }
+
+  function drawGraph() {
+    const svg = $("graph"), comps = E.comps, Ed = E.edges();
+    const depth = Object.fromEntries(comps.map((c) => [c.id, 0]));
+    for (let k = 0; k < comps.length; k++) Ed.forEach(([a, b]) => { if (depth[b.id] < depth[a.id] + 1) depth[b.id] = Math.min(depth[a.id] + 1, comps.length); });
+    const cols = []; comps.forEach((c) => (cols[depth[c.id]] = cols[depth[c.id]] || []).push(c));
+    const C = cols.filter(Boolean);
+    const avail = Math.max(300, svg.parentElement.clientWidth || 800);
+    const NH = 78, GY = 26, PAD = 30;
+    const horizontal = avail >= 640;
+    const GX = Math.max(44, Math.min(70, (avail - PAD * 2 - C.length * 168) / Math.max(1, C.length - 1)));
+    const NW = Math.max(132, Math.min(168, (avail - PAD * 2 - (C.length - 1) * GX) / C.length));
+    const maxRows = Math.max(...C.map((c) => c.length)), pos = {};
+    C.forEach((col, d) => col.forEach((c, i) => {
+      if (horizontal) pos[c.id] = { x: PAD + d * (NW + GX), y: PAD + ((maxRows - col.length) * (NH + GY)) / 2 + i * (NH + GY), w: NW };
+      else { const w = Math.min(NW, (avail - PAD * 2 - (col.length - 1) * 12) / col.length), rw = col.length * w + (col.length - 1) * 12; pos[c.id] = { x: (avail - rw) / 2 + i * (w + 12), y: PAD + d * (NH + 50), w }; }
+    }));
+    const W = horizontal ? C.length * (NW + GX) - GX + PAD * 2 : avail;
+    const H = horizontal ? maxRows * (NH + GY) - GY + PAD * 2 + 10 : C.length * (NH + 50) - 50 + PAD * 2;
+    const st = (c) => (state.compWorst[c.id] ? state.compWorst[c.id].s : "OK");
+    let s = `<defs>${["OK", "RISK", "FAIL"].map((k) => `<marker id="arr-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="${COL[k]}"/></marker>`).join("")}</defs>`;
+    const bez = (t, a, b, c, e) => (1 - t) ** 3 * a + 3 * (1 - t) ** 2 * t * b + 3 * (1 - t) * t * t * c + t ** 3 * e;
+    Ed.forEach(([a, b]) => {
+      const pa = pos[a.id], pb = pos[b.id], k = st(b);
+      let x1, y1, x2, y2, c1, c2;
+      if (horizontal) { x1 = pa.x + pa.w; y1 = pa.y + NH / 2; x2 = pb.x - 2; y2 = pb.y + NH / 2; const mx = (x1 + x2) / 2; c1 = [mx, y1]; c2 = [mx, y2]; }
+      else { x1 = pa.x + pa.w / 2; y1 = pa.y + NH; x2 = pb.x + pb.w / 2; y2 = pb.y - 2; const my = (y1 + y2) / 2; c1 = [x1, my]; c2 = [x2, my]; }
+      let flow = 0; try { flow = E.builtin(b, "rps", load); } catch (e) { /* shown in warnings */ }
+      const spd = Math.max(0.25, 2.2 - Math.log10(Math.max(1, flow)) * 0.45);
+      s += `<path d="M${x1} ${y1} C${c1[0]} ${c1[1]}, ${c2[0]} ${c2[1]}, ${x2} ${y2}" fill="none" stroke="${COL[k]}" stroke-width="${k === "FAIL" ? 3 : 2}" class="flow" style="--spd:${spd}s" marker-end="url(#arr-${k})" opacity="${k === "OK" ? 0.7 : 1}"/>`;
+      const lx = bez(0.7, x1, c1[0], c2[0], x2), ly = bez(0.7, y1, c1[1], c2[1], y2) + 4, label = `${fmt(flow)}/s`;
+      s += `<rect x="${lx - label.length * 3.6 - 5}" y="${ly - 11}" width="${label.length * 7.2 + 10}" height="16" rx="4" fill="var(--surface)" stroke="var(--line)"/>`;
+      s += `<text x="${lx}" y="${ly + 1}" text-anchor="middle" font-size="11" font-family="var(--f-mono)" fill="${k === "OK" ? "var(--muted)" : COL[k]}">${label}</text>`;
+    });
+    comps.forEach((c, ci) => {
+      const p = pos[c.id], w = state.compWorst[c.id], k = w ? w.s : "OK", u = w ? w.util : 0;
+      const isSel = selected === c.id, isFirst = state.first && state.first.members.some((m) => m.id === c.id);
+      const maxCh = Math.floor(p.w / 7.6), nm = c.name.length > maxCh ? c.name.slice(0, maxCh - 1) + "…" : c.name;
+      s += `<g class="nd" data-id="${esc(c.id)}" tabindex="0" role="button" aria-label="${esc(c.name)}: ${k} ${Math.round(u * 100)}%">`;
+      if (isFirst && k !== "OK") s += `<rect x="${p.x - 5}" y="${p.y - 5}" width="${p.w + 10}" height="${NH + 10}" rx="12" fill="none" stroke="${COL[k]}" stroke-width="2" class="pulse"/>`;
+      s += `<rect class="box" x="${p.x}" y="${p.y}" width="${p.w}" height="${NH}" rx="9" fill="${SOFT[k]}" stroke="${isSel ? "var(--accent)" : COL[k]}" stroke-width="${isSel ? 3 : 1.5}"/>`;
+      s += `<rect x="${p.x}" y="${p.y}" width="6" height="${NH}" rx="3" fill="${COL[k]}"/>`;
+      s += `<text x="${p.x + 14}" y="${p.y + 20}" font-size="10.5" letter-spacing="0.06em" fill="var(--muted)">${esc((c.kind || "").toUpperCase())}</text>`;
+      s += `<text x="${p.x + 14}" y="${p.y + 38}" font-size="13.5" font-weight="600" fill="var(--ink)"><title>${esc(c.name)}</title>${esc(nm)}</text>`;
+      s += `<text x="${p.x + 14}" y="${p.y + 62}" font-size="12" font-weight="600" font-family="var(--f-mono)" fill="${COL[k]}">${w ? (u >= 10 ? ">999" : Math.round(u * 100)) + "%" : "–"}</text>`;
+      const bx = p.x + 62, bw = p.w - 76;
+      s += `<rect x="${bx}" y="${p.y + 54}" width="${bw}" height="7" rx="3.5" fill="var(--line)"/><rect x="${bx}" y="${p.y + 54}" width="${bw * Math.min(1, u)}" height="7" rx="3.5" fill="${COL[k]}"/>`;
+      s += `<line x1="${bx + bw * OK}" x2="${bx + bw * OK}" y1="${p.y + 51}" y2="${p.y + 64}" stroke="var(--muted)"/>`;
+      if (isFirst) {
+        const tag = `BREAKS FIRST · ${fmt(state.first.brk)}/s`, tw = tag.length * 6.4 + 12;
+        s += `<rect x="${p.x + p.w - tw}" y="${p.y - 11}" width="${tw}" height="18" rx="9" fill="${k === "OK" ? "var(--muted)" : COL[k]}"/>`;
+        s += `<text x="${p.x + p.w - tw / 2}" y="${p.y + 2}" text-anchor="middle" font-size="10" font-weight="700" letter-spacing="0.04em" fill="var(--surface)">${tag}</text>`;
+      }
+      s += `</g>`;
+    });
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("width", W); svg.setAttribute("height", H);
+    svg.innerHTML = s;
+    svg.querySelectorAll(".nd").forEach((g) => {
+      const pick = () => { selected = g.dataset.id; buildSelected(); render(); $("selPanel").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+      g.addEventListener("click", pick);
+      g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+    });
+  }
+
+  function buildSelected() {
+    const c = M.components.find((x) => x.id === selected); if (!c) return;
+    $("selKind").textContent = c.kind || "Component"; $("selName").textContent = c.name;
+    const box = $("selVars"); box.innerHTML = "";
+    variables().filter((v) => v.group === c.id).forEach((v) => {
+      const d = document.createElement("div"); d.className = "var";
+      const formula = typeof v.m.value === "string";
+      d.innerHTML = `<label>${esc(v.m.label || v.name)} <code>${esc(v.builtin ? v.name : c.id + "." + v.name)}</code></label>`;
+      if (formula) { d.classList.add("derived"); d.insertAdjacentHTML("beforeend", `<div class="formula" data-formula="${esc(c.id)}|${esc(v.name)}"></div>`); }
+      else d.appendChild(numberInput(v, true));
+      box.appendChild(d);
+    });
+    if (!box.children.length) box.innerHTML = `<p class="muted">No variables on this component.</p>`;
+  }
+  function updateSelected() {
+    const c = M.components.find((x) => x.id === selected); if (!c) return;
+    const w = state.compWorst[c.id], pill = $("selPill");
+    pill.className = "pill " + (w ? w.s : "neutral"); pill.textContent = w ? `${w.s} ${Math.round(w.util * 100)}%` : "no active limits";
+    const mine = state.rows.filter((r) => r.members.some((m) => m.id === c.id));
+    $("selLimits").innerHTML = mine.length ? mine.map((r) => {
+      const part = r.parts.find((p) => p.c.id === c.id) || r.parts[0], l = part.l;
+      const valF = typeof l.value === "string" ? `${esc(l.value)} = ${fmt(r.value)}` : fmt(r.value);
+      const shared = r.members.length > 1 ? `<div class="formula">shared by ${r.members.map((m) => esc(m.name)).join(" + ")}: ${r.parts.map((p) => `${esc(p.c.name)} ${fmt(p.demand)}`).join(" + ")}${r.base ? ` + others ${fmt(r.base)}` : ""}</div>` : "";
+      return `<div class="limit">
+        <div class="limit-top"><span>${esc(l.name)}</span><span class="num">${fmt(r.util * 100)}%</span></div>
+        <div class="meter" data-s="${r.s}"><i style="width:${Math.min(100, r.util * 100)}%"></i><b></b></div>
+        <div class="formula">limit ${valF} · demand ${l.demand ? esc(l.demand) + " = " : ""}${fmt(part.demand)}</div>${shared}
+        <div class="tags"><span class="tag">${esc(l.type)}</span><span class="tag">${l.adjustable === false ? "hard limit" : l.adjustable ? "adjustable" : "adj?"}</span><span class="tag ${l.verified ? "" : "unverified"}">${l.verified ? "verified" : "unverified"}</span><span class="num">breaks at ${fmt(r.brk)} ${U}</span></div>
+        ${l.failure ? `<div class="muted">When exceeded: ${esc(l.failure)}</div>` : ""}
+      </div>`;
+    }).join("") : `<p class="muted">No active limits. A limit whose value is 0 is treated as switched off.</p>`;
+    document.querySelectorAll("[data-formula]").forEach((el) => {
+      const [id, name] = el.dataset.formula.split("|"), comp = E.byId[id];
+      let v; try { v = ["fanout", "duration_s", "timeout_s"].includes(name) ? E.builtin(comp, name, load) : E.ev(comp.params[name].value, comp, load); } catch (e) { v = NaN; }
+      const src = ["fanout", "duration_s", "timeout_s"].includes(name) ? comp[name] : comp.params[name].value;
+      el.textContent = `= ${src} → ${fmt(v)}`;
+    });
+    document.querySelectorAll(".vgroup").forEach((g) => g.classList.toggle("is-sel", g.dataset.group === selected));
+  }
+
+  function buildAllVars() {
+    const box = $("allVars"); box.innerHTML = "";
+    const groups = {};
+    variables().forEach((v) => (groups[v.group] = groups[v.group] || []).push(v));
+    const order = ["__account", ...M.components.map((c) => c.id)].filter((g) => groups[g]);
+    order.forEach((g) => {
+      const c = M.components.find((x) => x.id === g);
+      const el = document.createElement("div"); el.className = "vgroup"; el.dataset.group = g;
+      el.innerHTML = `<h3><span>${esc(c ? c.name : "Account quotas & shared values")}</span>${c ? `<span class="tags">${esc(c.kind || "")}</span>` : ""}</h3>`;
+      groups[g].forEach((v) => {
+        const row = document.createElement("div"); row.className = "vrow";
+        row.innerHTML = `<span title="${esc(v.name)}">${esc(v.m.label || v.name)}</span>`;
+        if (typeof v.m.value === "string") row.insertAdjacentHTML("beforeend", `<span class="formula" title="${esc(v.m.value)}">formula</span>`);
+        else row.appendChild(numberInput(v, false));
+        el.appendChild(row);
+      });
+      box.appendChild(el);
+    });
+  }
+
+  function ladder() {
+    const svg = $("ladder"), rows = state.rows;
+    const W = Math.max(560, svg.parentElement.clientWidth || 560), rowH = 30, top = 16, left = Math.min(290, W * 0.42), right = 64, H = top + rows.length * rowH + 34;
+    const finite = rows.map((r) => r.brk).filter((x) => isFinite(x) && x > 0);
+    const lo = Math.min(LOAD_MIN, ...finite), hi = Math.max(LOAD_MAX, ...finite);
+    const x = (v) => left + (W - left - right) * (Math.log10(Math.max(v, lo)) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo));
+    let s = "";
+    for (let p = Math.ceil(Math.log10(lo)); p <= Math.floor(Math.log10(hi)); p++) {
+      const t = Math.pow(10, p);
+      s += `<line x1="${x(t)}" x2="${x(t)}" y1="${top - 6}" y2="${H - 26}" stroke="var(--line)"/><text x="${x(t)}" y="${H - 10}" text-anchor="middle" font-size="11" fill="var(--muted)">${fmt(t)}</text>`;
+    }
+    rows.forEach((r, i) => {
+      const y = top + i * rowH, who = r.members.map((m) => m.name).join(" + "), label = `${who} · ${r.l.name}`;
+      const short = label.length > 44 ? label.slice(0, 42) + "…" : label, end = isFinite(r.brk) ? x(r.brk) : W - right;
+      s += `<text x="${left - 8}" y="${y + 15}" text-anchor="end" font-size="12" fill="var(--ink)"><title>${esc(label)}</title>${esc(short)}</text>`;
+      s += `<rect x="${left}" y="${y + 5}" width="${Math.max(2, end - left)}" height="14" rx="3" fill="${COL[r.s]}" opacity="0.9"/>`;
+      s += `<text x="${end + 6}" y="${y + 16}" font-size="11" fill="var(--muted)" font-family="var(--f-mono)">${fmt(r.brk)}</text>`;
+    });
+    s += `<line x1="${x(load)}" x2="${x(load)}" y1="${top - 8}" y2="${H - 26}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3"/>`;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("width", W); svg.setAttribute("height", H);
+    svg.innerHTML = s;
+  }
+
+  function buildFixes() {
+    const fixes = M.fixes || [];
+    $("fixPanel").hidden = !fixes.length;
+    $("fixes").innerHTML = fixes.map((f, i) => `<div class="fix" id="fix-${i}">
+      <div class="row"><h3>${esc(f.title)}</h3><span class="pill ${f.type === "quota" ? "quota" : "neutral"}">${esc(f.type || "change")}</span></div>
+      ${f.detail ? `<p>${esc(f.detail)}</p>` : ""}
+      <div class="tags">${f.effort ? `<span class="tag">effort ${esc(f.effort)}</span>` : ""}${f.cost ? `<span class="tag">${esc(f.cost)}</span>` : ""}</div>
+      ${f.set ? `<div class="formula">${Object.entries(f.set).map(([k, v]) => `${esc(k)} → ${esc(v)}`).join(" · ")}</div>
+      <div class="row"><button class="btn" type="button" data-fix="${i}" aria-pressed="false">Try it</button><span class="muted" data-fixres="${i}"></span></div>` : ""}
+    </div>`).join("");
+    $("fixes").querySelectorAll("[data-fix]").forEach((b) => b.addEventListener("click", () => toggleFix(+b.dataset.fix)));
+    const q = fixes.filter((f) => f.quota);
+    $("quotaPanel").hidden = !q.length;
+    $("quotas").innerHTML = `<thead><tr><th>Service</th><th>Quota</th><th>Current</th><th>Request</th><th>Justification</th></tr></thead><tbody>${q.map((f) => `<tr><td>${esc(f.quota.service)}</td><td>${esc(f.quota.name)}</td><td class="num">${esc(f.quota.current)}</td><td class="num">${esc(f.quota.requested)}</td><td>${esc(f.quota.justification || "")}</td></tr>`).join("")}</tbody>`;
+  }
+  function toggleFix(i) {
+    const f = M.fixes[i];
+    if (applied[i]) { Object.entries(applied[i]).forEach(([k, v]) => setVar(k, v)); delete applied[i]; }
+    else { const prev = {}; Object.entries(f.set).forEach(([k, v]) => { const key = fixKey(k); prev[key] = getVar(key); setVar(key, v); }); applied[i] = prev; }
+    const before = state.first ? state.first.brk : NaN;
+    render();
+    $("fix-" + i).classList.toggle("on", !!applied[i]);
+    document.querySelector(`[data-fix="${i}"]`).setAttribute("aria-pressed", String(!!applied[i]));
+    document.querySelector(`[data-fix="${i}"]`).textContent = applied[i] ? "Applied · undo" : "Try it";
+    $("fixes").querySelector(`[data-fixres="${i}"]`).textContent = applied[i] ? `First break: ${fmt(before)} → ${fmt(state.first ? state.first.brk : NaN)} ${U}` : "";
+  }
+
+  function runChecks() {
+    const list = M.checks || [];
+    $("checkPanel").hidden = !list.length;
+    const res = list.map((ch) => {
+      let v = NaN, err = "";
+      try { v = E.ev(ch.expr, null, load); } catch (e) { err = e.message; }
+      const pass = !err && (ch.max == null || v <= ch.max) && (ch.min == null || v >= ch.min);
+      return { ch, v, pass, err };
+    });
+    const cond = (ch) => [ch.min != null ? `≥ ${fmt(ch.min)}` : "", ch.max != null ? `≤ ${fmt(ch.max)}` : ""].filter(Boolean).join(" and ");
+    $("checks").innerHTML = `<thead><tr><th>Rule</th><th>Value now</th><th>Must be</th><th>Result</th></tr></thead><tbody>${res.map((r) => `<tr><td>${esc(r.ch.name)}<div class="formula">${esc(r.ch.expr)}</div></td><td class="num">${r.err ? "error" : fmt(r.v)}${r.ch.unit ? " " + esc(r.ch.unit) : ""}</td><td class="num">${esc(cond(r.ch))}</td><td><span class="pill ${r.pass ? "OK" : "FAIL"}">${r.pass ? "PASS" : "FAIL"}</span>${!r.pass && r.ch.failure ? `<div class="muted">${esc(r.ch.failure)}</div>` : ""}${r.err ? `<div class="muted">${esc(r.err)}</div>` : ""}</td></tr>`).join("")}</tbody>`;
+    state.checks = res;
+  }
+  function warnings() {
+    const out = state.errors.map((e) => ["crit", "Formula error: " + e]);
+    (state.checks || []).filter((r) => !r.pass).forEach((r) => out.push(["crit", `Rule failed: ${r.ch.name}${r.err ? "" : ` (now ${fmt(r.v)}${r.ch.unit ? " " + r.ch.unit : ""})`}.`]));
+    E.edges().forEach(([up, dn]) => {
+      let tu, td; try { tu = E.builtin(up, "timeout_s", load); td = E.builtin(dn, "timeout_s", load); } catch (e) { return; }
+      if (!dn.async && tu != null && td != null && td >= tu) out.push(["crit", `Timeout mismatch: ${dn.name} (${fmt(td)}s) is not shorter than its caller ${up.name} (${fmt(tu)}s). The caller gives up while work keeps running.`]);
+    });
+    E.comps.forEach((c) => { try { const t = E.builtin(c, "timeout_s", load), d = E.builtin(c, "duration_s", load); if (t != null && d > 0.5 * t) out.push(["warn", `${c.name}: duration ${fmt(d)}s is over half its ${fmt(t)}s timeout.`]); } catch (e) { /* listed above */ } });
+    state.rows.forEach((r) => { if (r.s !== "OK") out.push([r.s === "FAIL" ? "crit" : "warn", `${r.members.map((m) => m.name).join(" + ")} · ${r.l.name} at ${fmt(r.util * 100)}% (${r.s === "FAIL" ? "over the limit" : "under 30% headroom"}).`]); });
+    const unv = state.rows.filter((r) => !r.l.verified).length;
+    if (unv) out.push(["warn", `${unv} limit${unv > 1 ? "s are" : " is"} unverified. Confirm the account's real values before trusting these break points.`]);
+    if (!out.length) out.push(["ok", "No warnings at this load."]);
+    $("notes").innerHTML = out.map(([k, t]) => `<li class="${k}">${esc(t)}</li>`).join("");
+  }
+  function sources() {
+    const link = (s) => (/^https?:\/\//.test(s || "") ? `<a href="${esc(s)}" target="_blank" rel="noopener">${esc(s)}</a>` : esc(s || "–"));
+    const rows = [];
+    Object.entries(M.globals || {}).forEach(([k, g]) => { if (typeof g === "object" && ("verified" in g || g.source)) rows.push([g.label || k, g.value, g.verified, g.source, g.checked]); });
+    M.components.forEach((c) => (c.limits || []).forEach((l) => rows.push([`${c.name} · ${l.name}`, typeof l.value === "string" ? l.value : l.value, l.verified, l.source, l.checked])));
+    $("sources").innerHTML = `<thead><tr><th>Limit</th><th>Value</th><th>Verified</th><th>Source</th><th>Checked</th></tr></thead><tbody>${rows.map(([n, v, ver, src, d]) => `<tr><td>${esc(n)}</td><td class="num">${esc(v)}</td><td>${ver ? "yes" : `<span class="pill RISK">no</span>`}</td><td>${link(src)}</td><td class="num">${esc(d || "–")}</td></tr>`).join("")}</tbody>`;
+    const notes = M.notes || [];
+    $("assumptionsBox").hidden = !notes.length;
+    $("assumptions").innerHTML = notes.map((n) => `<li>${esc(n)}</li>`).join("");
+  }
+
+  function render() {
+    compute();
+    $("loadVal").textContent = fmt(load);
+    document.querySelectorAll("#scenarios .chip").forEach((b) => b.setAttribute("aria-pressed", String(Math.abs(+b.dataset.v - load) < 1e-9)));
+    const f = state.first, breaks = $("breaks");
+    if (f) {
+      breaks.className = "panel breaks" + (f.s === "OK" ? " is-ok" : f.s === "RISK" ? " is-warn" : "");
+      const who = f.members.map((m) => m.name).join(" + ");
+      $("first").textContent = `${who} at ${fmt(f.brk)} ${U}`;
+      const head = load >= f.brk ? `Over the limit now: ${fmt(load)} ${U} is ${fmt((load / Math.max(f.brk, 1e-9)) * 100)}% of the break point.` : `Headroom at ${fmt(load)} ${U}: ${fmt((1 - f.util) * 100)}% before ${f.l.name} runs out.`;
+      $("firstDetail").textContent = `${f.l.name} (${fmt(f.value)}${f.l.adjustable === false ? ", hard limit" : ", adjustable"}). ${head}` + (f.l.failure ? ` Users see: ${f.l.failure}.` : "");
+    } else { breaks.className = "panel breaks is-ok"; $("first").textContent = "No active limits"; $("firstDetail").textContent = ""; }
+    drawGraph(); updateSelected(); ladder(); runChecks(); warnings(); syncInputs();
+  }
+
+  function init(fresh) {
+    M = structuredClone(ORIGINAL); applied = {};
+    scnVals = Object.values(M.scenarios || { load: 100 });
+    LOAD_MIN = Math.max(0.1, Math.min(...scnVals) / 10); LOAD_MAX = Math.max(...scnVals) * 10;
+    const S = M.scenarios || {};
+    load = S[M.default_scenario] ?? S.peak ?? S.target ?? (scnVals.length > 1 ? scnVals[1] : scnVals[0]) ?? 100;
+    U = M.load_unit || "req/s"; $("loadUnit").textContent = U;
+    $("title").textContent = M.title || "Capacity";
+    $("subtitle").textContent = M.description || "Drag the load and the limits. Each box turns green, amber or red as it nears its limit.";
+    $("loadMin").textContent = fmt(LOAD_MIN) + " " + U; $("loadMax").textContent = fmt(LOAD_MAX) + " " + U;
+    const R = { lo: LOAD_MIN, hi: LOAD_MAX, log: true };
+    const slider = $("load"); slider.value = toPos(load, R);
+    slider.oninput = () => { load = fromPos(+slider.value, R); render(); };
+    $("scenarios").innerHTML = "";
+    Object.entries(M.scenarios || {}).forEach(([k, v]) => {
+      const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.id = "scn-" + k; b.dataset.v = v; b.textContent = `${k} · ${fmt(v)}/s`;
+      b.addEventListener("click", () => { load = v; slider.value = toPos(load, R); render(); });
+      $("scenarios").appendChild(b);
+    });
+    compute();
+    selected = state.first ? state.first.members[0].id : (M.components[0] || {}).id;
+    buildSelected(); buildAllVars(); buildFixes(); sources(); render();
+  }
+  $("reset").addEventListener("click", () => init());
+  $("export").addEventListener("click", () => {
+    const text = JSON.stringify(M, null, 2), box = $("exportBox");
+    box.value = text; box.hidden = false;
+    if (!navigator.clipboard) { box.select(); $("exportMsg").textContent = "The JSON is selected below."; return; }
+    navigator.clipboard.writeText(text).then(() => { $("exportMsg").textContent = "Copied. Paste it back to update model.json."; })
+      .catch(() => { box.select(); $("exportMsg").textContent = "Copy is blocked here; the JSON is selected below."; });
+  });
+  let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 120); });
+  init();
+})();
+</script>

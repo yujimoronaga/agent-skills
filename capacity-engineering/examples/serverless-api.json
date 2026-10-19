@@ -1,0 +1,90 @@
+{
+  "title": "Order API (example)",
+  "description": "Example model: CloudFront → API Gateway → Lambda → RDS, with order events on Kinesis read by a consumer Lambda. Example values, not a real account.",
+  "scenarios": { "expected": 50, "peak": 500, "spike": 2000 },
+  "globals": {
+    "lambda_account_concurrency": { "value": 1000, "label": "Lambda concurrent executions quota (account, region)", "integer": true, "min": 10, "max": 100000, "adjustable": true, "verified": false, "source": "https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html" },
+    "other_lambda_usage": { "value": 150, "label": "Concurrency used by other functions in the account", "integer": true, "min": 0, "max": 50000 },
+    "apigw_account_rps": { "value": 10000, "label": "API Gateway steady-state throttle (req/s, account, region)", "integer": true, "min": 100, "max": 100000, "adjustable": true, "verified": false, "source": "https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html" }
+  },
+  "components": [
+    {
+      "id": "cdn", "name": "CloudFront", "kind": "CDN",
+      "fanout": 1, "duration_s": 0.5, "timeout_s": 60, "connects_to": ["apigw"],
+      "params": {
+        "cache_hit_ratio": { "value": 0, "label": "Cache hit ratio (0–1)", "min": 0, "max": 0.99 },
+        "rps_quota": { "value": 250000, "label": "Requests/s per distribution", "integer": true, "min": 1000, "max": 2000000 }
+      },
+      "limits": [
+        { "name": "requests/s per distribution", "type": "rps", "value": "rps_quota", "adjustable": true, "verified": false, "source": "", "failure": "503 Slow Down" }
+      ]
+    },
+    {
+      "id": "apigw", "name": "API Gateway REST", "kind": "API gateway",
+      "fanout": "1 - cdn.cache_hit_ratio", "duration_s": 0.45, "timeout_s": 29, "connects_to": ["api_fn"],
+      "limits": [
+        { "name": "account steady-state throttle", "type": "rps", "value": "apigw_account_rps", "adjustable": true, "verified": false, "source": "", "failure": "429 Too Many Requests" }
+      ]
+    },
+    {
+      "id": "api_fn", "name": "Lambda api", "kind": "Compute",
+      "fanout": "apigw.fanout", "duration_s": 0.4, "timeout_s": 30, "connects_to": ["db", "stream"],
+      "params": {
+        "reserved_concurrency": { "value": 0, "label": "Reserved concurrency (0 = none)", "integer": true, "min": 0, "max": 5000 }
+      },
+      "limits": [
+        { "name": "account concurrency (shared)", "type": "concurrency", "value": "lambda_account_concurrency", "baseline": "other_lambda_usage", "shared_id": "lambda_account", "adjustable": true, "verified": false, "failure": "throttled, 429 via API Gateway" },
+        { "name": "reserved concurrency", "type": "concurrency", "value": "reserved_concurrency", "adjustable": true, "verified": true, "source": "your setting", "failure": "throttled at its reservation" }
+      ]
+    },
+    {
+      "id": "db", "name": "RDS Postgres", "kind": "Database",
+      "fanout": "api_fn.fanout * queries_per_request", "duration_s": 0.01, "timeout_s": 5,
+      "params": {
+        "queries_per_request": { "value": 3, "label": "Queries per API request", "min": 0, "max": 50 },
+        "max_connections": { "value": 87, "label": "max_connections", "integer": true, "min": 10, "max": 5000 },
+        "connections_per_instance": { "value": 1, "label": "Connections held per Lambda instance (≈0.1 with RDS Proxy)", "min": 0.01, "max": 10 }
+      },
+      "limits": [
+        { "name": "max_connections", "type": "connections", "value": "max_connections", "demand": "api_fn.concurrency * connections_per_instance", "adjustable": true, "verified": false, "source": "", "failure": "FATAL: too many connections (500s)" }
+      ]
+    },
+    {
+      "id": "stream", "name": "Kinesis order-events", "kind": "Stream",
+      "fanout": "api_fn.fanout * records_per_request", "duration_s": 0.02, "timeout_s": 2, "connects_to": ["consumer"],
+      "params": {
+        "records_per_request": { "value": 2, "label": "Records written per API request", "min": 0, "max": 20 },
+        "shards": { "value": 2, "label": "Shards", "integer": true, "min": 1, "max": 500 },
+        "write_records_per_shard": { "value": 1000, "label": "Write limit per shard (records/s)", "integer": true, "min": 100, "max": 10000 }
+      },
+      "limits": [
+        { "name": "write records/s", "type": "rps", "value": "shards * write_records_per_shard", "adjustable": true, "verified": false, "source": "", "failure": "ProvisionedThroughputExceeded; events lost if not retried" }
+      ]
+    },
+    {
+      "id": "consumer", "name": "Lambda consumer", "kind": "Compute", "async": true,
+      "fanout": "stream.fanout / batch_size", "duration_s": 0.5, "timeout_s": 60,
+      "params": {
+        "parallelization_factor": { "value": 2, "label": "Parallelization factor (Lambdas per shard, 1–10)", "integer": true, "min": 1, "max": 10 },
+        "batch_size": { "value": 100, "label": "Batch size (records per invocation)", "integer": true, "min": 1, "max": 10000 }
+      },
+      "limits": [
+        { "name": "account concurrency (shared)", "type": "concurrency", "value": "lambda_account_concurrency", "baseline": "other_lambda_usage", "demand": "stream.shards * parallelization_factor", "shared_id": "lambda_account", "adjustable": true, "verified": false, "failure": "consumer throttled; iterator age grows" },
+        { "name": "processing rate (records/s)", "type": "rps", "value": "stream.shards * parallelization_factor * batch_size / duration_s", "demand": "stream.rps", "adjustable": true, "verified": true, "source": "derived from shards × parallelization × batch ÷ duration", "failure": "iterator age grows; orders processed late" }
+      ]
+    }
+  ],
+  "fixes": [
+    { "title": "Put RDS Proxy in front of Postgres", "type": "config", "effort": "M", "cost": "Billed per database vCPU (verify pricing)", "detail": "Lambda instances share a small pool of DB connections instead of holding one each.", "set": { "db.connections_per_instance": 0.1 } },
+    { "title": "Raise the consumer's parallelization factor to 5", "type": "config", "effort": "S", "cost": "More concurrent consumer executions", "detail": "Each shard is processed by up to 5 Lambdas at once.", "set": { "consumer.parallelization_factor": 5 } },
+    { "title": "Add Kinesis shards (2 → 4)", "type": "config", "effort": "S", "cost": "Per shard-hour (verify pricing)", "detail": "Doubles write capacity and, with the consumer, read parallelism.", "set": { "stream.shards": 4 } },
+    { "title": "Request a higher Lambda concurrency quota", "type": "quota", "effort": "S", "cost": "None (pay per use)", "detail": "Covers the spike scenario with headroom.", "set": { "lambda_account_concurrency": 3000 },
+      "quota": { "service": "AWS Lambda", "name": "Concurrent executions", "current": 1000, "requested": 3000, "justification": "Spike of 2,000 req/s × 0.4s ≈ 800 concurrent, plus consumers and 150 used by other functions; 3× headroom for retries and growth." } },
+    { "title": "Set the API Lambda timeout below API Gateway's", "type": "config", "effort": "S", "cost": "None", "detail": "25s, so the function stops before the gateway gives up at 29s.", "set": { "api_fn.timeout_s": 25 } }
+  ],
+  "notes": [
+    "Durations and fanout are estimates from the intake, not measurements.",
+    "The RDS Proxy multiplexing ratio (0.1) is an assumption; measure it under load.",
+    "No load tests have been run; every result here is modelled."
+  ]
+}
